@@ -12,6 +12,8 @@ DEFAULT_CONFIG = {
     "deep_think_llm": "gpt-5.4",
     "quick_think_llm": "gpt-5.4-mini",
     "backend_url": "https://api.openai.com/v1",
+    "llm_api_key": None,                  # Explicit API key for custom/OpenAI-compatible relays
+    "llm_trust_env": None,                # Set False to ignore proxy env vars for custom relays
     # Provider-specific thinking configuration
     "google_thinking_level": None,      # "high", "minimal", etc.
     "openai_reasoning_effort": None,    # "medium", "high", "low"

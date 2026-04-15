@@ -137,6 +137,12 @@ class TradingAgentsGraph:
         """Get provider-specific kwargs for LLM client creation."""
         kwargs = {}
         provider = self.config.get("llm_provider", "").lower()
+        api_key = self.config.get("llm_api_key")
+
+        if api_key:
+            kwargs["api_key"] = api_key
+        if provider == "custom" and self.config.get("llm_trust_env") is not None:
+            kwargs["trust_env"] = self.config.get("llm_trust_env")
 
         if provider == "google":
             thinking_level = self.config.get("google_thinking_level")

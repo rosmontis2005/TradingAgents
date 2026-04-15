@@ -174,11 +174,29 @@ def select_openrouter_model() -> str:
     return choice
 
 
+def select_custom_model(role: str) -> str:
+    """Ask for a model ID used by a custom OpenAI-compatible relay."""
+    model_id = questionary.text(
+        f"Enter custom {role} model ID:",
+        validate=lambda x: len(x.strip()) > 0 or "Please enter a model ID.",
+    ).ask()
+
+    if not model_id:
+        console.print("\n[red]No model ID provided. Exiting...[/red]")
+        exit(1)
+
+    return model_id.strip()
+
+
 def select_shallow_thinking_agent(provider) -> str:
     """Select shallow thinking llm engine using an interactive selection."""
 
-    if provider.lower() == "openrouter":
+    provider_lower = provider.lower()
+
+    if provider_lower == "openrouter":
         return select_openrouter_model()
+    if provider_lower == "custom":
+        return select_custom_model("quick-thinking")
 
     choice = questionary.select(
         "Select Your [Quick-Thinking LLM Engine]:",
@@ -208,8 +226,12 @@ def select_shallow_thinking_agent(provider) -> str:
 def select_deep_thinking_agent(provider) -> str:
     """Select deep thinking llm engine using an interactive selection."""
 
-    if provider.lower() == "openrouter":
+    provider_lower = provider.lower()
+
+    if provider_lower == "openrouter":
         return select_openrouter_model()
+    if provider_lower == "custom":
+        return select_custom_model("deep-thinking")
 
     choice = questionary.select(
         "Select Your [Deep-Thinking LLM Engine]:",
@@ -233,22 +255,34 @@ def select_deep_thinking_agent(provider) -> str:
 
     return choice
 
-def select_llm_provider() -> tuple[str, str | None]:
+
+def _validate_base_url(value: str) -> bool | str:
+    """Validate custom OpenAI-compatible base URL input."""
+    url = value.strip()
+    if not url:
+        return "Please enter a base URL."
+    if not url.startswith(("http://", "https://")):
+        return "Base URL must start with http:// or https://."
+    return True
+
+
+def select_llm_provider() -> tuple[str, str | None, str | None, bool | None]:
     """Select the LLM provider and its API endpoint."""
-    BASE_URLS = [
-        ("OpenAI", "https://api.openai.com/v1"),
-        ("Google", None),  # google-genai SDK manages its own endpoint
-        ("Anthropic", "https://api.anthropic.com/"),
-        ("xAI", "https://api.x.ai/v1"),
-        ("Openrouter", "https://openrouter.ai/api/v1"),
-        ("Ollama", "http://localhost:11434/v1"),
+    providers = [
+        ("OpenAI", "openai", "https://api.openai.com/v1"),
+        ("Google", "google", None),  # google-genai SDK manages its own endpoint
+        ("Anthropic", "anthropic", "https://api.anthropic.com/"),
+        ("xAI", "xai", "https://api.x.ai/v1"),
+        ("OpenRouter", "openrouter", "https://openrouter.ai/api/v1"),
+        ("Ollama", "ollama", "http://localhost:11434/v1"),
+        ("Custom OpenAI-compatible relay", "custom", None),
     ]
     
     choice = questionary.select(
         "Select your LLM Provider:",
         choices=[
-            questionary.Choice(display, value=(display, value))
-            for display, value in BASE_URLS
+            questionary.Choice(display, value=(display, provider, value))
+            for display, provider, value in providers
         ],
         instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
         style=questionary.Style(
@@ -261,13 +295,43 @@ def select_llm_provider() -> tuple[str, str | None]:
     ).ask()
     
     if choice is None:
-        console.print("\n[red]no OpenAI backend selected. Exiting...[/red]")
+        console.print("\n[red]No LLM provider selected. Exiting...[/red]")
         exit(1)
     
-    display_name, url = choice
+    display_name, provider, url = choice
+
+    api_key = None
+    trust_env = None
+    if provider == "custom":
+        url = questionary.text(
+            "Enter custom OpenAI-compatible base URL (e.g. https://relay.example.com/v1):",
+            validate=_validate_base_url,
+        ).ask()
+        if not url:
+            console.print("\n[red]No custom base URL provided. Exiting...[/red]")
+            exit(1)
+        url = url.strip().rstrip("/")
+
+        api_key = questionary.password(
+            "Enter API key for this custom base URL:",
+            validate=lambda x: len(x.strip()) > 0 or "Please enter an API key.",
+        ).ask()
+        if not api_key:
+            console.print("\n[red]No custom API key provided. Exiting...[/red]")
+            exit(1)
+        api_key = api_key.strip()
+
+        trust_env = questionary.confirm(
+            "Use system proxy environment variables for this custom relay?",
+            default=True,
+        ).ask()
+        if trust_env is None:
+            console.print("\n[red]No proxy preference selected. Exiting...[/red]")
+            exit(1)
+
     print(f"You selected: {display_name}\tURL: {url}")
 
-    return display_name, url
+    return provider, url, api_key, trust_env
 
 
 def ask_openai_reasoning_effort() -> str:

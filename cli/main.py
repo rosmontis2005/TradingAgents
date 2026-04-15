@@ -553,7 +553,7 @@ def get_user_selections():
             "Step 6: LLM Provider", "Select your LLM provider"
         )
     )
-    selected_llm_provider, backend_url = select_llm_provider()
+    selected_llm_provider, backend_url, llm_api_key, llm_trust_env = select_llm_provider()
 
     # Step 7: Thinking agents
     console.print(
@@ -602,6 +602,8 @@ def get_user_selections():
         "research_depth": selected_research_depth,
         "llm_provider": selected_llm_provider.lower(),
         "backend_url": backend_url,
+        "llm_api_key": llm_api_key,
+        "llm_trust_env": llm_trust_env,
         "shallow_thinker": selected_shallow_thinker,
         "deep_thinker": selected_deep_thinker,
         "google_thinking_level": thinking_level,
@@ -936,6 +938,8 @@ def run_analysis():
     config["quick_think_llm"] = selections["shallow_thinker"]
     config["deep_think_llm"] = selections["deep_thinker"]
     config["backend_url"] = selections["backend_url"]
+    config["llm_api_key"] = selections.get("llm_api_key")
+    config["llm_trust_env"] = selections.get("llm_trust_env")
     config["llm_provider"] = selections["llm_provider"].lower()
     # Provider-specific thinking configuration
     config["google_thinking_level"] = selections.get("google_thinking_level")

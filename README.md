@@ -141,10 +141,13 @@ export GOOGLE_API_KEY=...          # Google (Gemini)
 export ANTHROPIC_API_KEY=...       # Anthropic (Claude)
 export XAI_API_KEY=...             # xAI (Grok)
 export OPENROUTER_API_KEY=...      # OpenRouter
+export CUSTOM_OPENAI_BASE_URL=...  # Optional custom OpenAI-compatible relay
+export CUSTOM_OPENAI_API_KEY=...   # Optional custom relay API key
 export ALPHA_VANTAGE_API_KEY=...   # Alpha Vantage
 ```
 
 For local models, configure Ollama with `llm_provider: "ollama"` in your config.
+For third-party OpenAI-compatible relay services, choose the custom provider in the CLI and enter the relay `base_url`, API key, and model IDs manually. This routes LLM traffic through the supplied relay URL instead of the built-in provider endpoints.
 
 Alternatively, copy `.env.example` to `.env` and fill in your keys:
 ```bash
@@ -178,7 +181,7 @@ An interface will appear showing results as they load, letting you track the age
 
 ### Implementation Details
 
-We built TradingAgents with LangGraph to ensure flexibility and modularity. The framework supports multiple LLM providers: OpenAI, Google, Anthropic, xAI, OpenRouter, and Ollama.
+We built TradingAgents with LangGraph to ensure flexibility and modularity. The framework supports multiple LLM providers: OpenAI, Google, Anthropic, xAI, OpenRouter, Ollama, and custom OpenAI-compatible relays.
 
 ### Python Usage
 
@@ -202,7 +205,7 @@ from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.default_config import DEFAULT_CONFIG
 
 config = DEFAULT_CONFIG.copy()
-config["llm_provider"] = "openai"        # openai, google, anthropic, xai, openrouter, ollama
+config["llm_provider"] = "openai"        # openai, google, anthropic, xai, openrouter, ollama, custom
 config["deep_think_llm"] = "gpt-5.4"     # Model for complex reasoning
 config["quick_think_llm"] = "gpt-5.4-mini" # Model for quick tasks
 config["max_debate_rounds"] = 2
@@ -210,6 +213,18 @@ config["max_debate_rounds"] = 2
 ta = TradingAgentsGraph(debug=True, config=config)
 _, decision = ta.propagate("NVDA", "2026-01-15")
 print(decision)
+```
+
+For a custom OpenAI-compatible relay:
+
+```python
+config = DEFAULT_CONFIG.copy()
+config["llm_provider"] = "custom"
+config["backend_url"] = "https://relay.example.com/v1"
+config["llm_api_key"] = "your-relay-api-key"
+config["llm_trust_env"] = False  # Optional: ignore HTTP_PROXY/ALL_PROXY for the relay
+config["deep_think_llm"] = "your-deep-model-id"
+config["quick_think_llm"] = "your-quick-model-id"
 ```
 
 See `tradingagents/default_config.py` for all configuration options.
