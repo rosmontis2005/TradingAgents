@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 import httpx
 from openai import APIStatusError
+from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
 from .base_client import BaseLLMClient, normalize_content
@@ -24,6 +25,78 @@ class NormalizedChatOpenAI(ChatOpenAI):
             return normalize_content(super().invoke(input, config, **kwargs))
         except APIStatusError as exc:
             raise RuntimeError(_format_openai_status_error(self, exc)) from exc
+
+
+class DeepSeekCompatibleChatOpenAI(NormalizedChatOpenAI):
+    """ChatOpenAI variant that preserves DeepSeek thinking tool-call state.
+
+    DeepSeek V4's thinking mode returns ``reasoning_content`` alongside the
+    assistant message content. During tool-call loops, DeepSeek requires that
+    same field to be sent back with the assistant message in later requests.
+    """
+
+    def _get_request_payload(self, input_, *, stop=None, **kwargs):
+        messages = self._convert_input(input_).to_messages()
+        payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+        payload_messages = payload.get("messages")
+        if isinstance(payload_messages, list):
+            _inject_deepseek_reasoning_content(messages, payload_messages)
+        return payload
+
+    def _create_chat_result(self, response, generation_info=None):
+        chat_result = super()._create_chat_result(response, generation_info)
+        response_dict = _safe_model_dump(response)
+        choices = response_dict.get("choices") or []
+
+        for index, (generation, choice) in enumerate(
+            zip(chat_result.generations, choices)
+        ):
+            message = getattr(generation, "message", None)
+            if not isinstance(message, AIMessage):
+                continue
+
+            reasoning_content = _extract_deepseek_reasoning_content(
+                response, index, choice
+            )
+            if reasoning_content is not None:
+                message.additional_kwargs["reasoning_content"] = reasoning_content
+
+        return chat_result
+
+
+def _inject_deepseek_reasoning_content(messages, payload_messages: list[dict]) -> None:
+    """Add DeepSeek reasoning content back to serialized assistant messages."""
+    for source_message, payload_message in zip(messages, payload_messages):
+        if not isinstance(source_message, AIMessage):
+            continue
+        reasoning_content = source_message.additional_kwargs.get("reasoning_content")
+        if reasoning_content is None:
+            continue
+        if payload_message.get("role") == "assistant":
+            payload_message["reasoning_content"] = reasoning_content
+
+
+def _safe_model_dump(response) -> dict:
+    """Return a dict response while preserving provider-specific extra fields."""
+    if isinstance(response, dict):
+        return response
+    if hasattr(response, "model_dump"):
+        return response.model_dump(
+            exclude={"choices": {"__all__": {"message": {"parsed"}}}}
+        )
+    return {}
+
+
+def _extract_deepseek_reasoning_content(response, index: int, choice: dict):
+    """Read DeepSeek's reasoning content from dict or SDK response objects."""
+    reasoning_content = (choice.get("message") or {}).get("reasoning_content")
+    if reasoning_content is not None:
+        return reasoning_content
+
+    try:
+        return getattr(response.choices[index].message, "reasoning_content", None)
+    except Exception:
+        return None
 
 
 def _format_openai_status_error(llm: ChatOpenAI, exc: APIStatusError) -> str:
@@ -65,6 +138,7 @@ _PROVIDER_CONFIG = {
 
 _CUSTOM_OPENAI_ENV_BASE_URL = "CUSTOM_OPENAI_BASE_URL"
 _CUSTOM_OPENAI_ENV_API_KEY = "CUSTOM_OPENAI_API_KEY"
+_DEEPSEEK_OPENAI_BASE_URL = "https://api.deepseek.com"
 
 _PROXY_ENV_VARS = (
     "HTTP_PROXY",
@@ -81,6 +155,20 @@ def _has_unsupported_proxy_scheme(proxy_url: str) -> bool:
     """Return True for proxy schemes unsupported by the installed httpx stack."""
     scheme = urlparse(proxy_url).scheme.lower()
     return bool(scheme and scheme not in _SUPPORTED_PROXY_SCHEMES)
+
+
+def _is_deepseek_openai_base_url(base_url: Optional[str]) -> bool:
+    """Return True for DeepSeek's OpenAI-compatible API base URL."""
+    if not base_url:
+        return False
+
+    parsed = urlparse(base_url)
+    expected = urlparse(_DEEPSEEK_OPENAI_BASE_URL)
+    return (
+        parsed.scheme.lower() == expected.scheme
+        and parsed.netloc.lower() == expected.netloc
+        and parsed.path.rstrip("/") in ("", "/v1")
+    )
 
 
 @contextmanager
@@ -178,8 +266,15 @@ class OpenAIClient(BaseLLMClient):
         if self.provider == "openai":
             llm_kwargs["use_responses_api"] = True
 
+        chat_cls = NormalizedChatOpenAI
+        if (
+            self.provider == "custom"
+            and _is_deepseek_openai_base_url(llm_kwargs.get("base_url"))
+        ):
+            chat_cls = DeepSeekCompatibleChatOpenAI
+
         with _without_unsupported_proxy_env():
-            return NormalizedChatOpenAI(**llm_kwargs)
+            return chat_cls(**llm_kwargs)
 
     def validate_model(self) -> bool:
         """Validate model for the provider."""
